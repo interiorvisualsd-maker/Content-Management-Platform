@@ -1,65 +1,88 @@
 import Link from "next/link";
 import { createServerClient } from "@/lib/supabase/server";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ARTICLE_STATUS, STATUS_LABELS, type ArticleStatus } from "@/lib/status";
+import { ARTICLE_STATUS, type ArticleStatus } from "@/lib/status";
 import type { Article } from "@/lib/types";
 import { logoutAction } from "./actions";
+import { FilterForm } from "./FilterForm";
 
 export const dynamic = "force-dynamic";
-
-const FILTER_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: ARTICLE_STATUS.DRAFT, label: STATUS_LABELS.draft },
-  { value: ARTICLE_STATUS.AUDIO_GENERATED, label: STATUS_LABELS.audio_generated },
-  { value: ARTICLE_STATUS.TRANSCRIPTION_GENERATED, label: STATUS_LABELS.transcription_generated },
-  { value: ARTICLE_STATUS.LLM_CORRECTED, label: STATUS_LABELS.llm_corrected },
-  { value: ARTICLE_STATUS.READY_FOR_REVIEW, label: STATUS_LABELS.ready_for_review },
-  { value: ARTICLE_STATUS.APPROVED, label: STATUS_LABELS.approved },
-  { value: ARTICLE_STATUS.PUBLISHED, label: STATUS_LABELS.published },
-  { value: ARTICLE_STATUS.FAILED, label: STATUS_LABELS.failed },
-];
 
 export default async function DashboardPage({
   searchParams,
 }: {
   searchParams: { status?: string; q?: string };
 }) {
-  const supabase = createServerClient();
-
   const statusFilter = searchParams.status || "all";
   const searchQuery = (searchParams.q || "").trim();
 
-  let query = supabase
-    .from("articles")
-    .select("*")
-    .order("created_at", { ascending: false });
+  // Defensive: wrap everything so we surface a friendly error instead of crashing.
+  let articles: Article[] = [];
+  let loadError: string | null = null;
 
-  if (statusFilter !== "all") {
-    query = query.eq("status", statusFilter as ArticleStatus);
+  let total = 0;
+  let needsAudio = 0;
+  let needsTranscription = 0;
+  let needsApproval = 0;
+  let published = 0;
+
+  try {
+    const supabase = createServerClient();
+
+    let query = supabase
+      .from("articles")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (statusFilter !== "all") {
+      query = query.eq("status", statusFilter as ArticleStatus);
+    }
+
+    if (searchQuery) {
+      // Escape special characters in the search query for PostgREST ilike
+      const safeQuery = searchQuery.replace(/[%_,]/g, " ");
+      query = query.or(`title.ilike.%${safeQuery}%,slug.ilike.%${safeQuery}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      // Distinguish "table doesn't exist" from other errors
+      if (error.message.includes("Could not find the table") || error.message.includes("relation") || error.code === "42P01") {
+        loadError = "The 'articles' table does not exist in your Supabase project. Please run supabase/schema.sql in the Supabase SQL Editor.";
+      } else {
+        loadError = `Supabase query error: ${error.message}`;
+      }
+    } else {
+      articles = (data ?? []) as Article[];
+    }
+
+    // Counts for the summary tiles — only if no error so far
+    if (!loadError) {
+      const { data: allArticles, error: countErr } = await supabase
+        .from("articles")
+        .select("status");
+
+      if (countErr) {
+        // Don't crash — just show zeroed counts
+        console.warn("Count query failed:", countErr.message);
+      } else {
+        const counts: Record<string, number> = {};
+        for (const a of (allArticles ?? [])) {
+          counts[a.status] = (counts[a.status] || 0) + 1;
+        }
+        total = (allArticles ?? []).length;
+        needsAudio = counts[ARTICLE_STATUS.DRAFT] || 0;
+        needsTranscription = counts[ARTICLE_STATUS.AUDIO_GENERATED] || 0;
+        needsApproval =
+          (counts[ARTICLE_STATUS.LLM_CORRECTED] || 0) +
+          (counts[ARTICLE_STATUS.READY_FOR_REVIEW] || 0);
+        published = counts[ARTICLE_STATUS.PUBLISHED] || 0;
+      }
+    }
+  } catch (err) {
+    loadError = err instanceof Error ? err.message : "Unknown error loading dashboard";
   }
-
-  if (searchQuery) {
-    // Case-insensitive search on title or slug
-    query = query.or(`title.ilike.%${searchQuery}%,slug.ilike.%${searchQuery}%`);
-  }
-
-  const { data, error } = await query;
-  const articles = (data ?? []) as Article[];
-
-  // Counts for the summary tiles
-  const { data: allArticles } = await supabase.from("articles").select("status");
-  const counts: Record<string, number> = {};
-  for (const a of (allArticles ?? [])) {
-    counts[a.status] = (counts[a.status] || 0) + 1;
-  }
-  const total = (allArticles ?? []).length;
-  const needsAudio = (counts[ARTICLE_STATUS.DRAFT] || 0);
-  const needsTranscription = (counts[ARTICLE_STATUS.AUDIO_GENERATED] || 0);
-  const needsCorrection = (counts[ARTICLE_STATUS.TRANSCRIPTION_GENERATED] || 0);
-  const needsApproval =
-    (counts[ARTICLE_STATUS.LLM_CORRECTED] || 0) +
-    (counts[ARTICLE_STATUS.READY_FOR_REVIEW] || 0);
-  const published = (counts[ARTICLE_STATUS.PUBLISHED] || 0);
 
   return (
     <div className="min-h-screen">
@@ -87,6 +110,12 @@ export default async function DashboardPage({
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+        {loadError && (
+          <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <strong className="font-semibold">Error:</strong> {loadError}
+          </div>
+        )}
+
         {/* Summary tiles */}
         <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <SummaryTile label="Total" value={total} accent="text-slate-900" />
@@ -98,45 +127,17 @@ export default async function DashboardPage({
 
         {/* Filters + search */}
         <section className="bg-white border border-slate-200 rounded-xl">
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-            <form method="get" className="flex flex-wrap items-center gap-2">
-              <label className="text-sm text-slate-600 mr-1">Status:</label>
-              <select
-                name="status"
-                defaultValue={statusFilter}
-                className="input max-w-[200px]"
-                onChange={(e) => (e.currentTarget.form as HTMLFormElement)?.submit()}
-              >
-                {FILTER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              <noscript>
-                <button type="submit" className="btn-secondary">Filter</button>
-              </noscript>
-            </form>
-            <form method="get" className="flex items-center gap-2">
-              {statusFilter !== "all" && <input type="hidden" name="status" value={statusFilter} />}
-              <input
-                type="search"
-                name="q"
-                defaultValue={searchQuery}
-                placeholder="Search title or slug..."
-                className="input max-w-xs"
-              />
-              <button type="submit" className="btn-secondary">Search</button>
-            </form>
-          </div>
+          <FilterForm statusFilter={statusFilter} searchQuery={searchQuery} />
 
           {/* Article list */}
-          {error ? (
-            <div className="px-5 py-8 text-center text-red-600 text-sm">
-              Failed to load articles: {error.message}
-            </div>
-          ) : articles.length === 0 ? (
+          {articles.length === 0 ? (
             <div className="px-5 py-12 text-center">
-              <p className="text-slate-500 text-sm">No articles match the current filters.</p>
-              <Link href="/articles/new" className="btn-primary mt-4">Create your first article</Link>
+              <p className="text-slate-500 text-sm">
+                {loadError ? "No articles to show until the error above is fixed." : "No articles match the current filters."}
+              </p>
+              {!loadError && (
+                <Link href="/articles/new" className="btn-primary mt-4">Create your first article</Link>
+              )}
             </div>
           ) : (
             <ul className="divide-y divide-slate-100">
