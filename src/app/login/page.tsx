@@ -73,6 +73,23 @@ function LoginForm() {
       <button type="submit" className="btn-primary w-full" disabled={loading}>
         {loading ? "Signing in..." : "Sign in"}
       </button>
+
+      {/* Demo credentials — visible on the page so they don't have to be in the proposal */}
+      <div className="mt-4 pt-4 border-t border-slate-100">
+        <p className="text-xs font-medium text-slate-700 mb-1">Demo credentials</p>
+        <p className="text-xs text-slate-500">Email: <code className="bg-slate-100 px-1 rounded">admin@example.com</code></p>
+        <p className="text-xs text-slate-500">Password: <code className="bg-slate-100 px-1 rounded">PASSWORD</code></p>
+        <button
+          type="button"
+          className="text-xs text-slate-500 underline mt-2 hover:text-slate-900"
+          onClick={() => {
+            setEmail("admin@example.com");
+            setPassword("PASSWORD");
+          }}
+        >
+          Auto-fill demo credentials
+        </button>
+      </div>
     </form>
   );
 }
