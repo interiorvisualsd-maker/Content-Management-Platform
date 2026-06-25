@@ -11,7 +11,7 @@ Internal admin platform for managing articles and publishing AI-assisted content
 | Framework | Next.js 14 (App Router) + TypeScript | Server components + API routes in one codebase |
 | Database & Storage | Supabase (Postgres + Storage) | Managed Postgres with RLS, public bucket for audio |
 | Auth | Hardcoded env-var credentials + signed JWT cookie (`jose`) | Per spec — simple, no auth provider needed |
-| Text-to-Speech | Microsoft Edge TTS (`msedge-tts`) | **$0, no API key**, neural voices, MP3 output |
+| Text-to-Speech | Google Translate TTS (HTTP endpoint) | **$0, no API key**, MP3 output, multi-language, works reliably on serverless |
 | Transcription | Groq Whisper `whisper-large-v3` | **Free tier**, returns segments with timestamps |
 | LLM correction | Groq Llama 3.3 70B (`llama-3.3-70b-versatile`) | **Free tier**, fast, JSON mode, OpenAI-compatible |
 | Styling | TailwindCSS 3 | Utility-first, no extra UI deps |
@@ -37,7 +37,7 @@ You need **two free accounts** (~10 minutes):
 | **Supabase** | https://supabase.com → New Project | `Project URL`, `anon key`, `service_role key` |
 | **Groq** | https://console.groq.com → API Keys | `gsk_...` API key (covers both Whisper + Llama) |
 
-**Edge TTS needs no account or key.**
+**Google Translate TTS needs no account or key.**
 
 ### 3. Set up Supabase schema
 
@@ -104,7 +104,7 @@ Each step is a single API route. State lives in the `articles` table.
 ┌─────────────┐     ┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌───────────┐
 │   Draft     │ ──▶ │ Generate TTS │ ──▶ │ Generate         │ ──▶ │ LLM Correct      │ ──▶ │ Approve   │
 │             │     │ /api/tts     │     │ Transcription    │     │ /api/correct     │     │ & Publish │
-│             │     │ Edge TTS →   │     │ /api/transcribe  │     │ Groq Llama 3.3   │     │ /api/     │
+│             │     │ Google Translate TTS →   │     │ /api/transcribe  │     │ Groq Llama 3.3   │     │ /api/     │
 │             │     │ Storage      │     │ Groq Whisper     │     │ preserves segs   │     │ publish   │
 └─────────────┘     └──────────────┘     └──────────────────┘     └──────────────────┘     └───────────┘
 ```
@@ -116,7 +116,7 @@ Each step is a single API route. State lives in the `articles` table.
 The article detail page (`/articles/[id]`) is the control center. It lets the admin:
 
 - Edit title + content + transcription + corrected transcription
-- Generate audio (Edge TTS) — playable inline via `<audio>`
+- Generate audio (Google Translate TTS) — playable inline via `<audio>`
 - Generate transcription (Groq Whisper) — shown as timestamped segments
 - Run LLM correction (Groq Llama 3.3) — preserves segment timestamps
 - Manually edit either transcription as raw JSON
@@ -131,7 +131,7 @@ The article detail page (`/articles/[id]`) is the control center. It lets the ad
 | `POST` | `/api/articles` | Create new article (draft) |
 | `GET` | `/api/articles/:id` | Fetch article (used by detail page refresh) |
 | `PATCH` | `/api/articles/:id` | Update editable fields (title, content, transcription, corrected_transcription, …) |
-| `POST` | `/api/tts` | Generate audio with Edge TTS, upload to Supabase Storage |
+| `POST` | `/api/tts` | Generate audio with Google Translate TTS, upload to Supabase Storage |
 | `POST` | `/api/transcribe` | Send audio to Groq Whisper, store transcription with segments |
 | `POST` | `/api/correct` | Send article content + transcription to Groq Llama 3.3, store corrected transcription |
 | `POST` | `/api/publish` | Validate pipeline completion, set status to approved/published |
@@ -223,7 +223,7 @@ content-management-platform/
 ### Vercel function timeouts
 
 The default Hobby tier timeout is 60 seconds, which is enough for:
-- Edge TTS: ~5-15s for a 1500-word article
+- Google Translate TTS: ~5-15s for a 1500-word article
 - Groq Whisper: ~5-10s for a 5-minute audio
 - Groq Llama 3.3: ~3-8s for segment correction
 
@@ -236,14 +236,14 @@ If you upgrade to Pro, set `maxDuration` higher in `src/app/api/*/route.ts` for 
 | Supabase | 500MB DB, 1GB Storage, 50k MAU | ~10,000 articles |
 | Groq Whisper | ~7,000 min/month | ~1,400 5-min audios |
 | Groq Llama 3.3 70B | 30 req/min, 14,400 req/day | Heavy daily admin use |
-| Edge TTS | Unlimited (no auth) | Unlimited |
+| Google Translate TTS | Unlimited (no auth) | Unlimited |
 | Vercel Hobby | 100GB bandwidth, 60s function timeout | Demo + low-traffic internal use |
 
 ## Troubleshooting
 
 **"Failed to download audio" during transcription** — Check that your Storage bucket is public and the `audio-files` bucket exists. Re-run `supabase/schema.sql` if needed.
 
-**"Edge TTS returned no audio"** — Edge TTS uses a public WebSocket endpoint that occasionally rate-limits. Wait 30s and click Regenerate.
+**"Google Translate TTS returned no audio"** — Google Translate TTS uses a public WebSocket endpoint that occasionally rate-limits. Wait 30s and click Regenerate.
 
 **"Groq Whisper API error (401)"** — Your `GROQ_API_KEY` is missing or invalid. Regenerate at https://console.groq.com/keys.
 
