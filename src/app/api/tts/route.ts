@@ -173,6 +173,7 @@ export async function POST(req: NextRequest) {
       articleId,
     });
     await adminClient.from("articles").update({
+      status: ARTICLE_STATUS.FAILED,
       error_message: `Audio generation failed: ${message}`,
       failed_step: "tts",
     }).eq("id", articleId);

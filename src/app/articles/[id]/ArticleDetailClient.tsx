@@ -55,8 +55,10 @@ export default function ArticleDetailClient({ initialArticle }: Props) {
     publish: false,
   });
 
-  // Currently active error message (from server response)
-  const [stepError, setStepError] = useState<string | null>(article.error_message);
+  // Currently active error message — only show if article is actually in failed state
+  const [stepError, setStepError] = useState<string | null>(
+    initialArticle.status === "failed" ? initialArticle.error_message : null
+  );
 
   // Saved-flash UI state
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
@@ -71,7 +73,7 @@ export default function ArticleDetailClient({ initialArticle }: Props) {
     if (res.ok) {
       const updated = (await res.json()) as Article;
       setArticle(updated);
-      setStepError(updated.error_message);
+      setStepError(updated.status === "failed" ? updated.error_message : null);
     }
     router.refresh();
   }, [article.id, router]);
@@ -235,7 +237,7 @@ export default function ArticleDetailClient({ initialArticle }: Props) {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="font-semibold text-slate-900">Step 1 · Audio generation</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Microsoft Edge TTS — free, no API key needed.</p>
+              <p className="text-xs text-slate-500 mt-0.5">Google Translate TTS — free, no API key needed.</p>
             </div>
             <button
               className="btn-primary"

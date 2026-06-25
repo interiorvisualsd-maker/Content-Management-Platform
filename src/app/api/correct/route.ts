@@ -237,6 +237,7 @@ Respond with ONLY the corrected text. No prose, no code fences.`;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown LLM correction error";
     await adminClient.from("articles").update({
+      status: ARTICLE_STATUS.FAILED,
       error_message: `LLM correction failed: ${message}`,
       failed_step: "correct",
     }).eq("id", articleId);

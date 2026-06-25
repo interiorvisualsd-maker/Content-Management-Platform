@@ -164,7 +164,7 @@ export default async function DashboardPage({
                         {a.transcription ? " · transcription ✓" : ""}
                         {a.corrected_transcription ? " · corrected ✓" : ""}
                       </p>
-                      {a.error_message && (
+                      {a.error_message && a.status === "failed" && (
                         <p className="text-xs text-red-600 mt-1">⚠ {a.error_message}</p>
                       )}
                     </div>

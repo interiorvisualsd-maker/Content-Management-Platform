@@ -130,6 +130,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown transcription error";
     await adminClient.from("articles").update({
+      status: ARTICLE_STATUS.FAILED,
       error_message: `Transcription failed: ${message}`,
       failed_step: "transcribe",
     }).eq("id", articleId);
